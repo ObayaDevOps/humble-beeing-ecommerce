@@ -11,6 +11,9 @@ process.env.PESAPAL_API_BASE_URL = process.env.PESAPAL_API_BASE_URL || 'https://
 process.env.PESAPAL_CONSUMER_KEY = process.env.PESAPAL_CONSUMER_KEY || 'test-key'
 process.env.PESAPAL_CONSUMER_SECRET = process.env.PESAPAL_CONSUMER_SECRET || 'test-secret'
 process.env.PESAPAL_IPN_IDS = process.env.PESAPAL_IPN_IDS || 'ipn-123'
+// Supabase env needed by server config during tests
+process.env.NEXT_PUBLIC_SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || 'http://supabase.test'
+process.env.SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || 'service-role-test-key'
 
 // MSW lifecycle
 beforeAll(() => server.listen({ onUnhandledRequest: 'warn' }))

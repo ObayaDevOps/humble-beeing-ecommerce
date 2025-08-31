@@ -1,10 +1,10 @@
 // lib/pesapal.js
 import axios from 'axios';
-
-// --- Configuration ---
-const PESAPAL_API_BASE_URL = process.env.PESAPAL_API_BASE_URL;
-const PESAPAL_CONSUMER_KEY = process.env.PESAPAL_CONSUMER_KEY;
-const PESAPAL_CONSUMER_SECRET = process.env.PESAPAL_CONSUMER_SECRET;
+import {
+  PESAPAL_API_BASE_URL,
+  PESAPAL_CONSUMER_KEY,
+  PESAPAL_CONSUMER_SECRET,
+} from '@/server/config/env';
 
 // --- Helper Functions ---
 
@@ -13,10 +13,12 @@ const PESAPAL_CONSUMER_SECRET = process.env.PESAPAL_CONSUMER_SECRET;
  * Throws an error if any are missing.
  */
 const checkPesapalConfig = () => {
-    if (!PESAPAL_API_BASE_URL || !PESAPAL_CONSUMER_KEY || !PESAPAL_CONSUMER_SECRET) {
-        console.error('Pesapal Configuration Error: Missing one or more required environment variables (PESAPAL_API_BASE_URL, PESAPAL_CONSUMER_KEY, PESAPAL_CONSUMER_SECRET)');
-        throw new Error('Server configuration error: Pesapal credentials or API URL missing.');
-    }
+  if (!PESAPAL_API_BASE_URL || !PESAPAL_CONSUMER_KEY || !PESAPAL_CONSUMER_SECRET) {
+    console.error(
+      'Pesapal Configuration Error: Missing one or more required environment variables (PESAPAL_API_BASE_URL, PESAPAL_CONSUMER_KEY, PESAPAL_CONSUMER_SECRET)'
+    );
+    throw new Error('Server configuration error: Pesapal credentials or API URL missing.');
+  }
 };
 
 /**

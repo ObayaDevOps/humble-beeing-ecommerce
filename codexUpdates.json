@@ -1,0 +1,24 @@
+{
+  "date": "2025-08-31",
+  "overview": "Added comprehensive tests for payments, checkout, and orders; created Pesapal iframe page; stabilized Playwright E2E with cart seeding and an E2E map mock; updated testing docs; pushed branch 'test-hardening' ready for PR.",
+  "highlights": [
+    "API tests: initiate/verify negative paths, status mapping, idempotency",
+    "Checkout stock checks: conflict/not found/DB error/success",
+    "Orders API: not-found and DB error branches",
+    "New page: /payment/pesapal-iframe",
+    "Playwright: readiness to /checkout, NEXT_PUBLIC_E2E=1 map mock, seeded cart",
+    "Docs: TESTING.md E2E guidance; PR_DRAFT.md added"
+  ],
+  "unitTests": {"total": 55, "passed": 52, "skipped": 2, "failed": 0},
+  "e2eTests": {"total": 3, "passed": 3},
+  "coverageHighlights": {
+    "src/pages/api/payments/initiate.js": {"lines": 97.7, "branches": 92.2},
+    "src/pages/api/payments/verify.js": {"lines": 93.2, "branches": 82.9},
+    "src/pages/api/checkout.js": {"lines": 87.3, "branches": 86.7},
+    "src/pages/api/orders/[orderId].js": {"lines": 100.0, "branches": 91.7},
+    "src/pages/api/webhooks/pesapal/ipn.js": {"lines": 84.6}
+  },
+  "branch": "test-hardening",
+  "prUrl": "https://github.com/ObayaDevOps/humble-beeing-ecommerce/pull/new/test-hardening"
+}
+
