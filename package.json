@@ -8,7 +8,12 @@
     "build:prod": "next build",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test": "vitest run --coverage --pool=threads",
+    "test:watch": "vitest --pool=threads",
+    "e2e": "playwright test",
+    "e2e:headed": "playwright test --headed",
+    "e2e:report": "playwright show-report"
   },
   "dependencies": {
     "@chakra-ui/icons": "^2.1.1",
@@ -28,6 +33,7 @@
     "framer": "^2.4.1",
     "framer-motion": "^10.18.0",
     "lucide-react": "^0.469.0",
+    "mime": "^4.0.7",
     "motion": "^12.0.6",
     "next": "14.2.3",
     "next-auth": "^4.24.11",
@@ -44,5 +50,17 @@
     "swr": "^2.3.3",
     "wouter": "^3.7.0",
     "zustand": "^5.0.3"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^6.4.8",
+    "@testing-library/react": "^16.0.0",
+    "@testing-library/user-event": "^14.5.2",
+    "@vitest/coverage-v8": "^2.0.5",
+    "jsdom": "^25.0.0",
+    "msw": "^2.3.5",
+    "playwright": "^1.47.2",
+    "@playwright/test": "^1.47.2",
+    "vitest": "^2.0.5",
+    "@vitejs/plugin-react": "^4.3.1"
   }
 }

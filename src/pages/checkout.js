@@ -76,6 +76,8 @@ export default function CheckoutPage() {
     googleMapsApiKey: MAPS_API_KEY,
   });
 
+  const isE2E = process.env.NEXT_PUBLIC_E2E === '1'
+
   const onLoad = useCallback(function callback(mapInstance) {
     setMap(mapInstance);
   }, []);
@@ -101,6 +103,20 @@ export default function CheckoutPage() {
       setErrors(prevErrors => ({ ...prevErrors, geocodingError: '' }));
     }
   }, [errors.mapLocation, errors.geocodingError]);
+
+  const handleMockMapClick = useCallback(() => {
+    // Fixed coordinates within Kampala for E2E tests
+    const lat = 0.347596
+    const lng = 32.58252
+    setSelectedPosition({ lat, lng })
+    setFormData(prevData => ({
+      ...prevData,
+      latitude: lat,
+      longitude: lng,
+    }))
+    if (errors.mapLocation) setErrors(prev => ({ ...prev, mapLocation: '' }))
+    if (errors.geocodingError) setErrors(prev => ({ ...prev, geocodingError: '' }))
+  }, [errors.mapLocation, errors.geocodingError])
 
   // Function to geocode address
   const geocodeAddress = async (addressString) => {
@@ -616,13 +632,30 @@ export default function CheckoutPage() {
               {errors.geocodingError && !errors.address && <FormErrorMessage>{errors.geocodingError}</FormErrorMessage>}
             </FormControl>
 
-            {/* Google Map Integration */}
+            {/* Google Map Integration (with E2E mock fallback) */}
             <FormControl isRequired isInvalid={!!errors.mapLocation} mt={2}>
               <FormLabel>
                 Please Drop a Pin in the Exact Delivery Location
                 {isGeocoding && <Text as="span" fontSize="sm" color="gray.500" ml={2}>(Locating address...)</Text>}
               </FormLabel>
-              {isLoaded && !loadError && (
+              {isE2E && (
+                <Box
+                  data-testid="mock-map"
+                  onClick={handleMockMapClick}
+                  bg="gray.100"
+                  display="flex"
+                  alignItems="center"
+                  justifyContent="center"
+                  borderColor="black"
+                  borderWidth="1px"
+                  borderRadius="lg"
+                  boxShadow="2px 2px 0px 0px rgba(0,0,0,1)"
+                  style={{ width: '100%', height: '400px', cursor: 'crosshair' }}
+                >
+                  <Text>Test Map: Click to drop pin</Text>
+                </Box>
+              )}
+              {!isE2E && isLoaded && !loadError && (
                 <Box
                   borderColor="black"
                   borderWidth="1px"
@@ -646,7 +679,7 @@ export default function CheckoutPage() {
                   </GoogleMap>
                 </Box>
               )}
-              {loadError && <Text color="red.500">Error loading map. Please ensure your API key is correct and the API is enabled.</Text>}
+              {!isE2E && loadError && <Text color="red.500">Error loading map. Please ensure your API key is correct and the API is enabled.</Text>}
               <FormErrorMessage>{errors.mapLocation}</FormErrorMessage>
             </FormControl>
 
