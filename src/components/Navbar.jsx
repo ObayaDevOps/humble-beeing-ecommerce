@@ -1,7 +1,7 @@
 import { Box, Flex, Heading, Link, IconButton, Image, Text, useDisclosure } from '@chakra-ui/react'
 import { FiShoppingCart } from 'react-icons/fi'
-import CartIcon from './cartIcon'
-import CartDrawer from './CartDrawer'
+import CartIcon from './cartIcon.jsx'
+import CartDrawer from './CartDrawer.jsx'
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/router'
 
@@ -84,4 +84,4 @@ export default function NavBar() {
       <CartDrawer isOpen={isOpen} onClose={onClose} />
     </Box>
   )
-} 
+}

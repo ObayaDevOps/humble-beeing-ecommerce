@@ -1,14 +1,13 @@
 // pages/api/payments/initiate.js
-import { getPesapalToken } from '@/lib/pesapal';
-// Import the specific Supabase DB functions we created
 import { createPendingPayment, updatePaymentTrackingId } from '@/lib/db';
-import axios from 'axios';
+import { submitPesapalOrder } from '@/server/clients/pesapal';
+import { PESAPAL_IPN_IDS, APP_BASE_URL } from '@/server/config/env';
+import { ensureRequestId } from '@/server/utils/requestId';
+import { createLogger } from '@/server/utils/logger';
 // Optional: Import Supabase Auth helper if getting user ID server-side
 // import { createPagesServerClient } from '@supabase/auth-helpers-nextjs';
 
-const PESAPAL_BASE_URL = process.env.PESAPAL_API_BASE_URL;
-const DEFAULT_IPN_ID = process.env.PESAPAL_IPN_IDS?.split(',')[0].trim(); // Get the first registered IPN ID
-const APP_BASE_URL = process.env.NEXT_PUBLIC_APP_BASE_URL;
+const DEFAULT_IPN_ID = (PESAPAL_IPN_IDS || '').split(',')[0]?.trim();
 
 export default async function handler(req, res) {
     if (req.method !== 'POST') {
@@ -17,8 +16,10 @@ export default async function handler(req, res) {
     }
 
     // --- Configuration Checks ---
-    if (!DEFAULT_IPN_ID || !APP_BASE_URL || !process.env.PESAPAL_CONSUMER_KEY || !process.env.PESAPAL_CONSUMER_SECRET || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
-        console.error("Missing required environment variables for payment initiation.");
+    const requestId = ensureRequestId(req, res);
+    const log = createLogger({ requestId, route: 'api/payments/initiate' });
+    if (!DEFAULT_IPN_ID || !APP_BASE_URL) {
+        log.error("Missing required environment variables for payment initiation.");
         return res.status(500).json({ message: 'Server configuration error.' });
     }
     // --- End Configuration Checks ---
@@ -76,12 +77,9 @@ export default async function handler(req, res) {
             cart_items: items,
             deliveryDetails: deliveryInfo,
         });
-        console.log(`Created pending payment record ID: ${dbPayment.id} for merchant ref: ${merchantReference}`);
+        log.info(`Created pending payment record`, { paymentId: dbPayment.id, merchantReference });
 
-        // 4. Get Pesapal Token (Do this *after* DB creation)
-        const token = await getPesapalToken();
-
-        // 5. Prepare payload for Pesapal
+        // 4. Prepare payload for Pesapal
         const pesapalPayload = {
             id: merchantReference, // Use your unique reference
             currency,
@@ -105,42 +103,28 @@ export default async function handler(req, res) {
             },
         };
 
-        // 6. Call Pesapal SubmitOrderRequest
-        console.log(`Submitting order to Pesapal for merchant ref: ${merchantReference}`);
-        const pesapalResponse = await axios.post(
-            `${PESAPAL_BASE_URL}/Transactions/SubmitOrderRequest`,
-            pesapalPayload,
-            {
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json',
-                },
-            }
-        );
+        // 5. Call Pesapal via client
+        log.info(`Submitting order to Pesapal`, { merchantReference });
+        const pesaResponse = await submitPesapalOrder(pesapalPayload);
 
         // 7. Handle Pesapal Response
-        if (pesapalResponse.data.error) {
-            // Log the error but maybe don't fail the DB record yet, keep it PENDING
-            console.error(`Pesapal rejected submission for ${merchantReference}:`, pesapalResponse.data.error);
-            throw new Error(pesapalResponse.data.error.message || 'Pesapal rejected the order submission.');
-        }
-
-        if (pesapalResponse.data.order_tracking_id && pesapalResponse.data.redirect_url) {
+        if (pesaResponse && pesaResponse.order_tracking_id && pesaResponse.redirect_url) {
             // 8. Update Supabase record with the pesapal_tracking_id
             // Use the imported Supabase function, pass the internal DB ID
-            await updatePaymentTrackingId(dbPayment.id, pesapalResponse.data.order_tracking_id);
-            console.log(`Updated payment record ${dbPayment.id} with Pesapal tracking ID: ${pesapalResponse.data.order_tracking_id}`);
+            await updatePaymentTrackingId(dbPayment.id, pesaResponse.order_tracking_id);
+            log.info(`Updated payment with Pesapal tracking ID`, { paymentId: dbPayment.id, trackingId: pesaResponse.order_tracking_id });
 
             // 9. Send redirect URL back to frontend
-            res.status(200).json({ redirectUrl: pesapalResponse.data.redirect_url });
+            res.status(200).json({ redirectUrl: pesaResponse.redirect_url });
         } else {
-             console.error(`Invalid Pesapal SubmitOrder response for ${merchantReference}:`, pesapalResponse.data);
+             log.error(`Invalid Pesapal SubmitOrder response`, { merchantReference, response: pesaResponse });
              throw new Error('Invalid response received from Pesapal after order submission.');
         }
 
     } catch (error) {
-        console.error("Error during payment initiation:", error.response?.data || error.message, error.stack);
+        const requestId = req.__requestId;
+        const log = createLogger({ requestId, route: 'api/payments/initiate' });
+        log.error("Error during payment initiation", { error: error?.response?.data || error?.message });
         // Optional: Update DB status to FAILED here if an error occurred after creation?
         // if (dbPayment?.id) {
         //     try { /* await updateStatusToFailed(dbPayment.id, error.message); */ } catch (dbErr) { /* log */ }

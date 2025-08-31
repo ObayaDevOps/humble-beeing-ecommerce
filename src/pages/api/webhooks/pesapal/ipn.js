@@ -1,34 +1,24 @@
 // pages/api/webhooks/pesapal/ipn.js
-import { getPesapalToken } from '@/lib/pesapal';
-// Import the specific Supabase DB functions
+import { getPesapalTransactionStatus } from '@/server/clients/pesapal';
 import { getPaymentByTrackingId, updatePaymentStatus } from '@/lib/db';
-import axios from 'axios';
-
-const PESAPAL_BASE_URL = process.env.PESAPAL_API_BASE_URL;
-
-// Helper to map Pesapal status codes (consistent with verify.js)
-const mapPesapalStatus = (statusCode) => {
-    switch (statusCode) {
-        case 0: return 'INVALID';
-        case 1: return 'COMPLETED';
-        case 2: return 'FAILED';
-        case 3: return 'REVERSED';
-        default: return 'PENDING';
-    }
-};
+import { mapPesapalStatus } from '@/server/services/statusMap';
+import { ensureRequestId } from '@/server/utils/requestId';
+import { createLogger } from '@/server/utils/logger';
 
 // --- Main IPN Handler ---
 export default async function handler(req, res) {
-    console.log(`IPN Received - Method: ${req.method}`);
+    const requestId = ensureRequestId(req, res);
+    const log = createLogger({ requestId, route: 'api/webhooks/pesapal/ipn' });
+    log.info(`IPN Received`, { method: req.method });
 
     // Pesapal IPN v3 seems to use GET with query parameters based on docs
     const { OrderTrackingId, OrderMerchantReference, OrderNotificationType } = req.query;
 
-    console.log(`IPN Data: TrackingId=${OrderTrackingId}, MerchantRef=${OrderMerchantReference}, Type=${OrderNotificationType}`);
+    log.info(`IPN Data`, { OrderTrackingId, OrderMerchantReference, OrderNotificationType });
 
     // --- Basic Validation ---
     if (!OrderTrackingId || !OrderMerchantReference || !OrderNotificationType) {
-         console.error("IPN Error: Missing required parameters in query.", req.query);
+         log.error("IPN Error: Missing required parameters in query.", { query: req.query });
          // Still acknowledge receipt if possible, but indicate an issue
          return res.status(200).json({ // Use 200 OK for ACK, but signal error in payload if possible
              orderNotificationType: OrderNotificationType || 'UNKNOWN',
@@ -54,46 +44,33 @@ export default async function handler(req, res) {
     // Use setImmediate for non-blocking execution in Node.js event loop
     // For production, consider a proper background job queue (e.g., BullMQ, Celery if using Python backend, etc.)
     setImmediate(async () => {
-        console.log(`Starting async processing for IPN ${OrderTrackingId}`);
+        log.info(`Starting async processing`, { OrderTrackingId });
         try {
             // Optional: Check if already processed to prevent redundant updates?
             const existingPayment = await getPaymentByTrackingId(OrderTrackingId);
             // Add robust check: Only skip if status is definitively terminal (COMPLETED, FAILED, REVERSED)
             if (existingPayment && ['COMPLETED', 'FAILED', 'REVERSED', 'INVALID'].includes(existingPayment.status)) {
-               console.log(`IPN for ${OrderTrackingId} skipped: Already in terminal state (${existingPayment.status}).`);
+               log.info(`IPN skipped: terminal state`, { OrderTrackingId, status: existingPayment.status });
                return; // Stop processing
             }
 
-            // Get Fresh Pesapal Token
-            const token = await getPesapalToken();
-
             // Query Pesapal for the definitive status
-            console.log(`IPN - Querying Pesapal status for ${OrderTrackingId}`);
-            const statusResponse = await axios.get(
-                 `${PESAPAL_BASE_URL}/Transactions/GetTransactionStatus`,
-                 {
-                     params: { orderTrackingId: OrderTrackingId },
-                     headers: {
-                         'Authorization': `Bearer ${token}`,
-                         'Accept': 'application/json',
-                         'Content-Type': 'application/json',
-                     },
-                 }
-            );
+            log.info(`Querying Pesapal status`, { OrderTrackingId });
+            const statusResponse = await getPesapalTransactionStatus(OrderTrackingId);
 
              // Handle Pesapal API Error during IPN processing
-             if (statusResponse.data.error?.code) {
-                 console.error(`IPN Error (Status Check) for ${OrderTrackingId}: ${statusResponse.data.error.code} - ${statusResponse.data.error.message}`);
+             if (statusResponse?.error?.code) {
+                 log.error(`IPN Error (Status Check)`, { OrderTrackingId, error: statusResponse.error });
                  // Log error, potentially retry later? Do not proceed with DB update.
                  return;
              }
 
              // Map status and prepare data
-             const pesapalStatusCode = statusResponse.data.status_code;
+             const pesapalStatusCode = statusResponse.status_code;
              const internalStatus = mapPesapalStatus(pesapalStatusCode);
-             const confirmationCode = statusResponse.data.confirmation_code;
-             const statusDescription = statusResponse.data.payment_status_description;
-             const paymentMethod = statusResponse.data.payment_method;
+             const confirmationCode = statusResponse.confirmation_code;
+             const statusDescription = statusResponse.payment_status_description;
+             const paymentMethod = statusResponse.payment_method;
 
              console.log(`IPN - Pesapal status for ${OrderTrackingId}: Code=${pesapalStatusCode}, Internal=${internalStatus}, ConfCode=${confirmationCode}`);
 
@@ -108,10 +85,10 @@ export default async function handler(req, res) {
              );
 
              if (!updatedPayment) {
-                 console.warn(`IPN Update Warning: No DB record found for tracking ID ${OrderTrackingId}. Was it created?`);
+                 log.warn(`No DB record found for tracking ID`, { OrderTrackingId });
                  // Log this, might indicate a race condition or issue in initiate step
              } else {
-                console.log(`IPN - DB status updated successfully for ${OrderTrackingId} to ${internalStatus}`);
+                log.info(`DB status updated`, { OrderTrackingId, internalStatus });
 
                 // --- Trigger Post-Payment Actions ONLY on Successful Update & COMPLETED Status ---
                 if (internalStatus === 'COMPLETED') {
@@ -127,18 +104,18 @@ export default async function handler(req, res) {
 
                     // Handle RECURRING specific logic if needed
                     if (OrderNotificationType === 'RECURRING') {
-                        console.log(`IPN - Processing RECURRING payment logic for ${OrderTrackingId}`);
+                        log.info(`Processing RECURRING logic`, { OrderTrackingId });
                         // Maybe update subscription status, log recurring payment specifically
                     }
                 } else {
-                     console.log(`IPN - Payment ${OrderTrackingId} status is ${internalStatus}, no completion actions triggered.`);
+                     log.info(`Payment not completed; no completion actions`, { OrderTrackingId, internalStatus });
                      // Handle FAILED/REVERSED cases if needed (e.g., send notification)
                 }
                 // --- End Post-Payment Actions ---
              }
 
         } catch (error) {
-            console.error(`IPN Async Processing Error for ${OrderTrackingId}:`, error.response?.data || error.message, error.stack);
+            log.error(`IPN Async Processing Error`, { OrderTrackingId, error: error?.response?.data || error?.message });
             // Implement monitoring/alerting for failed IPN processing
             // Consider adding retry logic with exponential backoff for transient errors (network, Pesapal API down)
         }

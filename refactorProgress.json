@@ -1,0 +1,330 @@
+{
+  "meta": {
+    "name": "HB E‑commerce Refactor Plan",
+    "version": "1.0.0",
+    "last_updated": "2025-08-31",
+    "scope": "Refactor to layered architecture, harden payments/webhooks, security, observability, tests, and DX. No TypeScript migration.",
+    "constraints": [
+      "Stay on Next.js Pages Router for now",
+      "No TypeScript (JavaScript only)",
+      "Network calls limited to providers already used (Pesapal, Supabase, Sanity, email, WhatsApp)",
+      "Minimize breaking changes to public API routes"
+    ],
+    "out_of_scope": [
+      "TypeScript migration",
+      "Full App Router migration",
+      "New payment providers"
+    ]
+  },
+  "goals": [
+    "Adopt a clean, layered architecture (API → services → repositories → clients)",
+    "Make payments + webhooks idempotent, observable, and easy to reason about",
+    "Move inventory stock updates to post-payment (atomic with order creation)",
+    "Secure admin endpoints and standardize input validation",
+    "Unify duplicated UI components and utilities; reduce dead deps",
+    "Add structured logging, correlation IDs, and consistent error envelopes",
+    "Strengthen automated tests (unit/integration/e2e) and CI"
+  ],
+  "deliverables": [
+    "New server folders: services, repositories, clients, utils, config",
+    "Central Pesapal status mapper and error formatter shared across flows",
+    "Idempotent webhook/verify handling with processed-events table or key",
+    "Order creation + stock decrement in one DB transaction (RPC or SQL)",
+    "Middleware/auth guard for /api/admin/* and admin pages",
+    "Rate limiting on sensitive endpoints",
+    "Refactored components without duplicates; unified utils paths",
+    "Test suite expansion and CI pipeline updates"
+  ],
+  "architecture": {
+    "folders": {
+      "create": [
+        "src/server/config",
+        "src/server/clients",
+        "src/server/repositories",
+        "src/server/services",
+        "src/server/utils"
+      ],
+      "move_or_refactor": [
+        {"from": "src/lib/db.js", "to": "src/server/repositories/payments.js (split)"},
+        {"from": "src/lib/db.js", "to": "src/server/repositories/orders.js (split)"},
+        {"from": "src/lib/db.js", "to": "src/server/repositories/inventory.js (split)"},
+        {"from": "src/lib/pesapal.js", "to": "src/server/clients/pesapal.js"},
+        {"from": "sanity/lib/client.js", "to": "src/server/clients/sanity.js (wrapper)"},
+        {"from": "src/lib/supabaseClient.js", "to": "src/server/clients/supabase.js (server-only factory)"},
+        {"from": "src/util/cloudinaryImageRetreival.js", "to": "src/utils/cloudinaryImageRetrieval.js (rename and fix imports)"}
+      ]
+    },
+    "shared_modules": [
+      "src/server/utils/logger.js",
+      "src/server/utils/http.js (success/error envelope)",
+      "src/server/utils/errors.js (AppError hierarchy)",
+      "src/server/services/statusMap.js (Pesapal status mapper)",
+      "src/server/config/env.js (validated env access)"
+    ]
+  },
+  "phases": [
+    {
+      "name": "Phase 0 – Preparation & Safety",
+      "estimate": "0.5–1 day",
+      "tasks": [
+        {
+          "id": "P0-T1",
+          "title": "Create env config and validation layer",
+          "description": "Add src/server/config/env.js that reads and validates required env vars; remove direct process.env reads in server code.",
+          "files": ["src/server/config/env.js", "src/pages/api/**/*.js", "src/server/clients/**/*.js"],
+          "acceptance": ["All server modules import from env.js", "Missing envs yield clear startup errors"],
+          "status": "completed",
+          "notes": "Added src/server/config/env.js; refactored pesapal lib and key API routes (verify, IPN) to use env config for Pesapal base URL and credentials."
+        },
+        {
+          "id": "P0-T2",
+          "title": "Introduce structured logger and request IDs",
+          "description": "Add lightweight logger (pino-like or custom wrapper) and middleware/util to attach correlation IDs to logs per request.",
+          "files": ["src/server/utils/logger.js", "src/server/utils/requestId.js", "src/pages/api/**/*.js"],
+          "acceptance": ["API logs include requestId", "Errors logged with context"],
+          "status": "completed",
+          "notes": "Added logger.js and requestId.js; instrumented payments/initiate, payments/verify, and IPN routes to emit requestId-tagged logs."
+        }
+      ]
+    },
+    {
+      "name": "Phase 1 – Folderization & Shared Utilities",
+      "estimate": "1–2 days",
+      "tasks": [
+        {
+          "id": "P1-T1",
+          "title": "Create server folders and move clients",
+          "description": "Create clients for supabase, pesapal, sanity. Keep public supabase client in src/lib if used by browser code.",
+          "files": ["src/server/clients/supabase.js", "src/server/clients/pesapal.js", "src/server/clients/sanity.js"],
+          "acceptance": ["API routes import from server/clients", "No direct axios calls to Pesapal from handlers"],
+          "status": "completed",
+          "notes": "Added server client facades; refactored payments/initiate, verify, and IPN to use pesapal client functions (no direct axios in handlers)."
+        },
+        {
+          "id": "P1-T2",
+          "title": "Extract status mapper and error helpers",
+          "description": "Create src/server/services/statusMap.js and src/server/utils/errors.js; refactor verify and IPN to import mapper.",
+          "files": ["src/server/services/statusMap.js", "src/server/utils/errors.js", "src/pages/api/payments/verify.js", "src/pages/api/webhooks/pesapal/ipn.js"],
+          "acceptance": ["Single source-of-truth mapping used in both flows"],
+          "status": "completed",
+          "notes": "Added src/server/services/statusMap.js; verify.js and ipn.js now import and use shared mapper."
+        },
+        {
+          "id": "P1-T3",
+          "title": "HTTP response helpers",
+          "description": "Add http.js utilities for success/error responses with consistent envelope.",
+          "files": ["src/server/utils/http.js", "src/pages/api/**/*.js"],
+          "acceptance": ["All handlers return standardized JSON envelopes"],
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "name": "Phase 2 – Repositories & Services",
+      "estimate": "2–3 days",
+      "tasks": [
+        {
+          "id": "P2-T1",
+          "title": "Split db.js into repositories",
+          "description": "Create payments.js, orders.js, inventory.js repositories. Each exposes clear methods and returns normalized data.",
+          "files": ["src/server/repositories/payments.js", "src/server/repositories/orders.js", "src/server/repositories/inventory.js", "src/lib/db.js"],
+          "acceptance": ["API routes no longer import src/lib/db.js", "Repository unit tests added"],
+          "status": "pending"
+        },
+        {
+          "id": "P2-T2",
+          "title": "Implement PaymentService and OrderService",
+          "description": "PaymentService handles initiate/verify/IPN orchestration. OrderService handles order creation, idempotency, and stock updates.",
+          "files": ["src/server/services/payments.js", "src/server/services/orders.js"],
+          "acceptance": ["API handlers are thin and call services", "Services encapsulate Pesapal and DB flows"],
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "name": "Phase 3 – Payments Hardening",
+      "estimate": "2–3 days",
+      "tasks": [
+        {
+          "id": "P3-T1",
+          "title": "Fix confirmation code mapping and unify status handling",
+          "description": "Use response.confirmation_code everywhere; ensure status mapping uses shared statusMap.",
+          "files": ["src/pages/api/payments/verify.js", "src/pages/api/webhooks/pesapal/ipn.js", "src/server/services/statusMap.js"],
+          "acceptance": ["Tests cover mapping and confirmation_code usage"],
+          "status": "completed",
+          "notes": "verify.js now extracts payment_method and confirmation_code separately and calls updatePaymentStatus(orderTrackingId, internalStatus, paymentMethod, confirmationCode, statusDescription). IPN already correct."
+        },
+        {
+          "id": "P3-T2",
+          "title": "Idempotency for webhooks/verify",
+          "description": "Add processed-events key (by orderTrackingId + type) in DB or cache; handlers early-exit on duplicates.",
+          "files": ["db migrations/RPC", "src/server/services/payments.js", "src/server/repositories/payments.js"],
+          "acceptance": ["Repeated IPN/verify calls do not create duplicate orders or updates"],
+          "status": "pending"
+        },
+        {
+          "id": "P3-T3",
+          "title": "Move stock decrement to post-payment",
+          "description": "Ensure order creation + stock update happen atomically after payment completion (RPC or transaction). Remove pre-decrement in checkout API.",
+          "files": ["src/pages/api/checkout.js", "src/server/repositories/orders.js", "db RPC functions"],
+          "acceptance": ["No stock changes before successful payments", "Atomicity guaranteed by DB"],
+          "status": "pending"
+        },
+        {
+          "id": "P3-T4",
+          "title": "Background processing for IPN",
+          "description": "Keep immediate 200 ACK; run processing off-thread (setImmediate) with retry strategy. Optionally add a lightweight queue later.",
+          "files": ["src/pages/api/webhooks/pesapal/ipn.js", "src/server/services/payments.js"],
+          "acceptance": ["IPN responds <200ms", "Retry logic for transient errors"],
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "name": "Phase 4 – Security & Validation",
+      "estimate": "1–2 days",
+      "tasks": [
+        {
+          "id": "P4-T1",
+          "title": "Admin auth guard",
+          "description": "Protect /api/admin/* and admin pages with auth check (NextAuth or Supabase auth) and RBAC middleware.",
+          "files": ["src/pages/api/admin/**/*.js", "src/middleware.js (if used)"],
+          "acceptance": ["Unauthorized requests return 401/403", "Happy-path admin flows still work"],
+          "status": "pending"
+        },
+        {
+          "id": "P4-T2",
+          "title": "Input validation with Zod (JS)",
+          "description": "Add per-route Zod schemas for body/query validation in payment, inventory, notify endpoints.",
+          "files": ["src/server/utils/validation.js", "src/pages/api/**/*.js"],
+          "acceptance": ["Invalid requests get 400 with helpful messages"],
+          "status": "pending"
+        },
+        {
+          "id": "P4-T3",
+          "title": "Rate limiting",
+          "description": "Add simple in-memory or edge-friendly rate limiter for initiate/verify/webhook/notify routes.",
+          "files": ["src/server/utils/rateLimit.js", "src/pages/api/**/*.js"],
+          "acceptance": ["Excessive requests are throttled with 429"],
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "name": "Phase 5 – Frontend Hygiene",
+      "estimate": "0.5–1 day",
+      "tasks": [
+        {
+          "id": "P5-T1",
+          "title": "Remove duplicate components and unify imports",
+          "description": "Keep single versions of Navbar, CartDrawer, cartIcon (.jsx). Update all imports.",
+          "files": ["src/components/Navbar.jsx", "src/components/CartDrawer.jsx", "src/components/cartIcon.jsx", "project-wide imports"],
+          "acceptance": ["No duplicate files remain", "App compiles and tests pass"],
+          "status": "completed",
+          "notes": "Removed duplicate .js components: Navbar.js, CartDrawer.js, cartIcon.js. Ensured .jsx versions remain primary; imports resolve correctly. All tests green."
+        },
+        {
+          "id": "P5-T2",
+          "title": "Rename cloudinary util and move to utils",
+          "description": "Fix Retreival→Retrieval typo; colocate under src/utils and update imports.",
+          "files": ["src/utils/cloudinaryImageRetrieval.js", "import callsites"],
+          "acceptance": ["No broken imports", "Single source of cloudinary URL building"],
+          "status": "completed",
+          "notes": "Added src/utils/cloudinaryImageRetrieval.js, removed src/util/cloudinaryImageRetreival.js. No callsites found; safe rename."
+        },
+        {
+          "id": "P5-T3",
+          "title": "Font loading consistency",
+          "description": "Standardize on next/font or link tags. Prefer next/font for Chakra integration; remove duplicates.",
+          "files": ["src/styles/theme.js", "src/pages/_document.js"],
+          "acceptance": ["No duplicate font loads", "Visual parity maintained"],
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "name": "Phase 6 – Testing & CI",
+      "estimate": "1–2 days",
+      "tasks": [
+        {
+          "id": "P6-T1",
+          "title": "Unit tests for services and repositories",
+          "description": "Add vitest tests for PaymentService, OrderService, and repos. Mock external clients via MSW or spies.",
+          "files": ["test/**", "src/server/services/**/*.js", "src/server/repositories/**/*.js"],
+          "acceptance": [">80% coverage on new server code", "Green test suite"],
+          "status": "pending"
+        },
+        {
+          "id": "P6-T2",
+          "title": "Contract tests for Pesapal status mapping",
+          "description": "Test a matrix of Pesapal responses to ensure consistent internal statuses and fields.",
+          "files": ["src/server/services/statusMap.js", "test/**"],
+          "acceptance": ["All mappings deterministic and covered"],
+          "status": "pending"
+        },
+        {
+          "id": "P6-T3",
+          "title": "E2E flows for success/failure + idempotency",
+          "description": "Playwright tests for cart→checkout→callback. Simulate duplicate IPN/verify calls and ensure no duplicate orders.",
+          "files": ["e2e/tests/*.spec.ts"],
+          "acceptance": ["Idempotency validated in E2E", "Visual/functional checks pass"],
+          "status": "pending"
+        },
+        {
+          "id": "P6-T4",
+          "title": "CI pipeline updates",
+          "description": "Run lint, unit, and e2e on PR; add coverage report and fail thresholds.",
+          "files": [".github/workflows/ci.yml"],
+          "acceptance": ["CI blocks merges on failing tests/lint", "Coverage summary in PR"],
+          "status": "pending"
+        }
+      ]
+    }
+  ],
+  "risks": [
+    {"risk": "Behavioral regressions from moving server code", "mitigation": "Phase-by-phase PRs with tests and feature flags if needed"},
+    {"risk": "Webhook idempotency edge cases", "mitigation": "Processed-events store and duplicate-aware queries"},
+    {"risk": "Stock synchronization under concurrency", "mitigation": "Single transaction in DB; use row-level locks in RPC"},
+    {"risk": "Env/config drift across environments", "mitigation": "Central env validator; CI preflight checks"}
+  ],
+  "metrics": [
+    "Payment success/failure rate and verification latency",
+    "Duplicate webhook suppression count",
+    "Order creation time and error rate",
+    "Test coverage and CI duration",
+    "Bundle size after frontend hygiene"
+  ],
+  "acceptance_criteria": [
+    "API handlers are slim (< ~80 lines) and delegate to services",
+    "Single status mapper used by both IPN and verify",
+    "No duplicate React components or util files",
+    "Stock never decremented before payment completes",
+    "Admin endpoints require auth and enforce RBAC",
+    "Standardized error envelopes across APIs",
+    ">=80% coverage on new server code; existing tests still pass"
+  ],
+  "timeline": {
+    "total_estimate": "7–12 days (depending on validation depth and CI)",
+    "milestones": [
+      {"name": "Foundations (P0–P1)", "eta_days": 2},
+      {"name": "Services/Repos (P2)", "eta_days": 2},
+      {"name": "Payments Hardening (P3)", "eta_days": 3},
+      {"name": "Security & Frontend Hygiene (P4–P5)", "eta_days": 2},
+      {"name": "Tests & CI (P6)", "eta_days": 2}
+    ]
+  },
+  "progress": {
+    "phase": "in_progress",
+    "tasks_completed": 7,
+    "tasks_total": 18,
+    "recent_changes": [
+      "P0-T1 completed: env.js added; pesapal lib and verify/IPN routes refactored to consume it",
+      "P1-T2 completed: statusMap.js created and adopted by verify/IPN",
+      "P3-T1 completed: confirmation_code mapping fixed; correct param order to updatePaymentStatus",
+      "P0-T2 completed: logger + requestId utilities added and used in critical routes",
+      "P1-T1 completed: server client facades added; handlers no longer call Pesapal via axios directly",
+      "P5-T1 completed: removed duplicate components (.js), keeping .jsx versions",
+      "P5-T2 completed: cloudinary util renamed and moved to src/utils"
+    ]
+  }
+}

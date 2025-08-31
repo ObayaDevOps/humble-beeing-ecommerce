@@ -1,30 +1,16 @@
 // pages/api/payments/verify.js
-import { getPesapalToken } from '@/lib/pesapal';
-// Import the specific Supabase DB functions
+import { getPesapalTransactionStatus } from '@/server/clients/pesapal';
 import {
     getPaymentByTrackingId,
     updatePaymentStatus,
-    // --- Add imports for new order/inventory functions ---
     findOrderExistsByPaymentId,
-    createOrderAndItems, // We'll create this combined function
-    // getProductDetailsByIds, // Helper if createOrderAndItems doesn't fetch prices itself
-    // updateInventoryStock // Function to decrement stock (add later if needed)
-    // --- End new imports ---
+    createOrderAndItems,
 } from '@/lib/db';
 import axios from 'axios';
-
-const PESAPAL_BASE_URL = process.env.PESAPAL_API_BASE_URL;
-
-// Helper to map Pesapal status codes
-const mapPesapalStatus = (statusCode) => {
-    switch (statusCode) {
-        case 0: return 'INVALID'; // Or FAILED?
-        case 1: return 'COMPLETED';
-        case 2: return 'FAILED';
-        case 3: return 'REVERSED'; // Or FAILED/REFUNDED?
-        default: return 'PENDING'; // Or UNKNOWN?
-    }
-};
+import { mapPesapalStatus } from '@/server/services/statusMap';
+import { PESAPAL_API_BASE_URL as PESAPAL_BASE_URL } from '@/server/config/env';
+import { ensureRequestId } from '@/server/utils/requestId';
+import { createLogger } from '@/server/utils/logger';
 
 export default async function handler(req, res) {
      if (req.method !== 'POST') {
@@ -39,52 +25,42 @@ export default async function handler(req, res) {
     }
 
     try {
-        console.log(`Verifying payment status for OrderTrackingId: ${orderTrackingId}`);
+        const requestId = ensureRequestId(req, res);
+        const log = createLogger({ requestId, route: 'api/payments/verify' });
+        log.info(`Verifying payment status`, { orderTrackingId });
 
         // 1. Get Pesapal Token
-        const token = await getPesapalToken();
-
-        // 2. Call Pesapal GetTransactionStatus API
-        const statusUrl = `${PESAPAL_BASE_URL}/Transactions/GetTransactionStatus?orderTrackingId=${orderTrackingId}`;
-        console.log(`Querying Pesapal status URL: ${statusUrl}`);
-
-        const pesapalResponse = await axios.get(statusUrl, {
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json',
-                    'Accept': 'application/json',
-            },
-            timeout: 20000, // Add a reasonable timeout
-        });
-
-        console.log(`Pesapal status response for ${orderTrackingId}:`, pesapalResponse.data);
+        // 2. Call Pesapal GetTransactionStatus via client
+        const pesapalData = await getPesapalTransactionStatus(orderTrackingId);
+        log.info(`Pesapal status response`, { orderTrackingId, status_code: pesapalData?.status_code });
 
         // 3. Process Pesapal Response
-        if (pesapalResponse.data.error && pesapalResponse.data.error.code) {
-            console.error(`Pesapal returned error for status check ${orderTrackingId}:`, pesapalResponse.data.error);
+        if (pesapalData?.error && pesapalData?.error.code) {
+            log.error(`Pesapal returned error for status check`, { orderTrackingId, error: pesapalData.error });
             // Consider fetching DB record here to return *some* info? Or just fail.
              return res.status(502).json({ // Bad Gateway - Pesapal error
-                 message: pesapalResponse.data.error.message || 'Failed to get transaction status from Pesapal.',
-                 pesapal_error_code: pesapalResponse.data.error.code
+                 message: pesapalData.error.message || 'Failed to get transaction status from Pesapal.',
+                 pesapal_error_code: pesapalData.error.code
              });
         }
 
         // Extract relevant data from Pesapal response
-        const paymentStatus = pesapalResponse.data.payment_status_description;
-        const confirmationCode = pesapalResponse.data.payment_method;
-        const statusDescription = pesapalResponse.data.description;
-        const pesapalAmount = pesapalResponse.data.amount;
-        const statusCode = pesapalResponse.data.status_code; // Assuming this field exists
+        const paymentStatus = pesapalData.payment_status_description;
+        const paymentMethod = pesapalData.payment_method;
+        const confirmationCode = pesapalData.confirmation_code;
+        const statusDescription = pesapalData.description;
+        const pesapalAmount = pesapalData.amount;
+        const statusCode = pesapalData.status_code; // Assuming this field exists
 
         // Map Pesapal status to our internal status convention if needed
         const internalStatus = mapPesapalStatus(statusCode); // Use the helper
 
         // 4. Update your Database record status
-        console.log(`Updating DB payment status for ${orderTrackingId} to ${internalStatus}`);
-        const updatedPayment = await updatePaymentStatus( // Capture the returned record
+        log.info(`Updating DB payment status`, { orderTrackingId, internalStatus });
+        const updatedPayment = await updatePaymentStatus(
             orderTrackingId,
-            internalStatus, // Use our mapped status
-            confirmationCode,
+            internalStatus,
+            paymentMethod,
             statusDescription
         );
 
@@ -95,7 +71,7 @@ export default async function handler(req, res) {
         const dbPaymentRecord = updatedPayment;
 
         if (!dbPaymentRecord) {
-            console.error(`Failed to retrieve or update payment record in DB for ${orderTrackingId}`);
+            log.error(`Failed to retrieve or update payment record in DB`, { orderTrackingId });
              return res.status(404).json({
                 message: 'Payment record not found or failed to update in our system after verification.',
                 status: internalStatus,
@@ -107,14 +83,14 @@ export default async function handler(req, res) {
         // *** START: Order Creation Logic ***
         // Only proceed if the payment is marked as COMPLETED
         if (internalStatus === 'COMPLETED') {
-            console.log(`Payment ${orderTrackingId} (ID: ${dbPaymentRecord.id}) verified as COMPLETED. Checking/Creating order...`);
+            log.info(`Payment verified COMPLETED, checking/creating order`, { orderTrackingId, paymentId: dbPaymentRecord.id });
 
             try {
                 // 2. Check if an Order already exists for this payment_id
                 const existingOrder = await findOrderExistsByPaymentId(dbPaymentRecord.id);
 
                 if (!existingOrder) {
-                    console.log(`No existing order found for payment ID ${dbPaymentRecord.id}. Creating new order.`);
+                    log.info(`No existing order found, creating new order`, { paymentId: dbPaymentRecord.id });
 
                     // 3 & 4. Create Order and Order Items
                     // We need cart_items, user_id (if available), addresses etc. from dbPaymentRecord
@@ -137,28 +113,27 @@ export default async function handler(req, res) {
                         // and doesn't fetch them itself. Based on the PL/pgSQL, it fetches price/name.
                     }));
 
-                    console.log('ORDER DATA verify - createOrderAndItems', orderData);
-                    console.log('ITEMS DATA verify (mapped) - createOrderAndItems', itemsDataForRPC); // Log mapped data
+                    log.debug('createOrderAndItems payload', { orderData, itemsDataForRPC });
                     const { data: newOrder, error: orderError } = await createOrderAndItems(orderData, itemsDataForRPC); // Pass mapped data
 
                     if (orderError) {
-                        console.error(`Failed to create order/items for payment ID ${dbPaymentRecord.id}:`, orderError);
+                        log.error(`Failed to create order/items`, { paymentId: dbPaymentRecord.id, error: orderError });
                         // Decide how critical this is. Should we still return success to the callback?
                         // Maybe log the error but don't fail the verification response?
                         // Or potentially try and set the payment status back to PENDING or NEEDS_ATTENTION?
                         // For now, log and continue, but flag this might need review.
                     } else {
-                        console.log(`Successfully created order ${newOrder.id} for payment ${dbPaymentRecord.id}`);
+                        log.info(`Successfully created order`, { orderId: newOrder.id, paymentId: dbPaymentRecord.id });
                         // 5. (Optional Step) Update Inventory Stock Levels
                         // await updateInventoryStock(itemsData); // Pass items to decrement counts
                     }
 
                 } else {
-                    console.log(`Order ${existingOrder.id} already exists for payment ID ${dbPaymentRecord.id}. Skipping creation.`);
+                    log.info(`Order already exists; skipping creation`, { orderId: existingOrder.id, paymentId: dbPaymentRecord.id });
                 }
 
             } catch (orderCreationError) {
-                console.error(`Error during order creation/check process for payment ID ${dbPaymentRecord.id}:`, orderCreationError);
+                log.error(`Error during order creation/check process`, { paymentId: dbPaymentRecord.id, error: orderCreationError?.message });
                 // Log this critical failure. Depending on policy, might need manual intervention.
             }
         }
@@ -180,16 +155,26 @@ export default async function handler(req, res) {
             }
         };
 
-        console.log(`Sending verification success response for ${orderTrackingId} to frontend.`);
+        log.info(`Verification success response sent`, { orderTrackingId });
         res.status(200).json(responsePayload);
 
     } catch (error) {
-        console.error(`Error verifying payment for ${orderTrackingId}:`, error.response?.data || error.message, error.stack);
+        const requestId2 = req.__requestId;
+        const log2 = createLogger({ requestId: requestId2, route: 'api/payments/verify' });
+        log2.error(`Error verifying payment`, { orderTrackingId, error: error?.response?.data || error?.message });
 
          // Differentiate between Pesapal API errors and internal errors
-         if (axios.isAxiosError(error) && error.response?.config?.url?.includes(PESAPAL_BASE_URL)) {
-             // Error calling Pesapal status check
-             return res.status(502).json({ message: 'Failed to communicate with payment provider for status check.' });
+         const isPesapalWrappedError = typeof error?.message === 'string' && error.message.startsWith('Pesapal API Error during');
+         const original = error?.originalError;
+         const axiosFromPesapal = (axios.isAxiosError(error) && error.response?.config?.url?.includes(PESAPAL_BASE_URL))
+           || (axios.isAxiosError(original) && original.response?.config?.url?.includes(PESAPAL_BASE_URL));
+
+         if (isPesapalWrappedError || axiosFromPesapal) {
+             // Errors originating from Pesapal (transport or provider error)
+             const pesapalCode = error?.response?.data?.error?.code
+               || error?.originalError?.response?.data?.error?.code
+               || undefined;
+             return res.status(502).json({ message: 'Failed to communicate with payment provider for status check.', pesapal_error_code: pesapalCode });
          } else if (error.message.startsWith('Supabase') || error.message.startsWith('Database error')) { // Catch DB errors explicitly
             // Error interacting with our DB during payment update or order creation
             console.error("Database interaction error during verification:", error);

@@ -39,7 +39,6 @@ export default function CartDrawer({ isOpen, onClose }) {
 
   const handleCheckout = () => {
     onClose()
-    // Navigation will be handled by the Link component
   }
 
   return (
@@ -237,4 +236,5 @@ export default function CartDrawer({ isOpen, onClose }) {
       </AlertDialog>
     </>
   )
-} 
+}
+
