@@ -3,9 +3,10 @@ import { server } from '../../test/msw/server'
 import { http } from 'msw'
 
 vi.mock('@/lib/db', () => ({
-  updatePaymentStatus: vi.fn(async (tid, status, code, desc) => ({ id: 'pay-1', status, pesapal_status_description: desc, amount: 1000, currency: 'UGX', cart_items: [], delivery_address: {}, customer_email: 'a@b.com', customer_phone: '+256...' })),
+  updatePaymentStatus: vi.fn(async (tid, status, method, confirmationCode, desc) => ({ id: 'pay-1', status, pesapal_status_description: desc, amount: 1000, currency: 'UGX', cart_items: [], delivery_address: {}, customer_email: 'a@b.com', customer_phone: '+256...' })),
   findOrderExistsByPaymentId: vi.fn(async () => null),
-  createOrderAndItems: vi.fn(async () => ({ data: { id: 'order-1' } })),
+  createOrderAndItemsAtomic: vi.fn(async () => ({ data: { id: 'order-1' } })),
+  markEventProcessed: vi.fn(async () => ({ ok: true, processed: true })),
 }))
 
 let handler

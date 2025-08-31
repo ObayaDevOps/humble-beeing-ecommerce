@@ -169,6 +169,23 @@ export async function getAllInventoryItemById(sanity_id) {
    return  { data, error }; // Returns the record or null
 }
 
+// --- Idempotency (DB-backed via processed_events table) ---
+export async function markEventProcessed(eventType, trackingId, ttlSeconds = 300) {
+    const supabase = getServerSupabaseClient();
+    const { data, error } = await supabase.rpc('mark_event_processed', {
+        p_type: eventType,
+        p_tracking: trackingId,
+        p_ttl_seconds: ttlSeconds,
+    })
+    if (error) {
+        console.error('Supabase RPC error calling mark_event_processed:', error)
+        // Consider throwing to let callers decide
+        return { ok: false, error }
+    }
+    // data is boolean: true if marked now, false if duplicate
+    return { ok: true, processed: !!data }
+}
+
 
 /**
  * Updates an inventory item in the database.
@@ -345,6 +362,33 @@ export async function createOrderAndItems(orderData, itemsData) {
     }
 
     return { data, error };
+}
+
+/**
+ * Creates an order and items AND decrements stock atomically in a single transaction via RPC.
+ * PostgreSQL function: create_order_and_items_atomic(p_order_data JSONB, p_items_data JSONB)
+ */
+export async function createOrderAndItemsAtomic(orderData, itemsData) {
+    console.log('Attempting atomic order+stock RPC:', { orderData, itemsData })
+    const supabase = getServerSupabaseClient();
+
+    // Prepare items as expected by the RPC: [{ product_id, quantity }]
+    const itemsJson = (itemsData || []).map(item => ({
+        product_id: item.product_id,
+        quantity: item.quantity,
+    }));
+
+    const { data, error } = await supabase.rpc('create_order_and_items_atomic', {
+        p_order_data: orderData,
+        p_items_data: itemsJson,
+    });
+
+    if (error) {
+        console.error('Supabase RPC error calling create_order_and_items_atomic:', error)
+    } else {
+        console.log('Atomic RPC success. Created order:', data)
+    }
+    return { data, error }
 }
 
 /**

@@ -4,7 +4,8 @@ import handler from '@/pages/api/payments/verify'
 vi.mock('@/lib/db', () => ({
   updatePaymentStatus: vi.fn(async () => ({ id: 'pay-1', status: 'PENDING', pesapal_status_description: 'Pending', amount: 1000, currency: 'UGX', cart_items: [], delivery_address: {}, customer_email: 'a@b.com', customer_phone: '+256...' })),
   findOrderExistsByPaymentId: vi.fn(async () => ({ id: 'order-1' })),
-  createOrderAndItems: vi.fn(async () => ({ data: { id: 'order-1' } })),
+  createOrderAndItemsAtomic: vi.fn(async () => ({ data: { id: 'order-1' } })),
+  markEventProcessed: vi.fn(async () => ({ ok: true, processed: true })),
 }))
 
 const createReqRes = (body = {}, method = 'POST') => {
@@ -46,4 +47,3 @@ describe('API /api/payments/verify negative paths', () => {
     expect(out.json).toHaveProperty('pesapal_error_code')
   })
 })
-

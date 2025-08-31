@@ -4,6 +4,7 @@ import handler from '@/pages/api/webhooks/pesapal/ipn'
 vi.mock('@/lib/db', () => ({
   getPaymentByTrackingId: vi.fn(async () => ({ id: 'pay-1', status: 'PENDING' })),
   updatePaymentStatus: vi.fn(async () => ({ id: 'pay-1', status: 'COMPLETED' })),
+  markEventProcessed: vi.fn(async () => ({ ok: true, processed: true })),
 }))
 
 vi.mock('@/lib/pesapal', () => ({
@@ -48,4 +49,3 @@ describe('API /api/webhooks/pesapal/ipn basic behavior', () => {
     expect(out.json.orderMerchantReference).toBe('M1')
   })
 })
-

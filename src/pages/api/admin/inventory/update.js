@@ -1,12 +1,10 @@
-import { updateInventoryItem } from '@/lib/db';
+import { updateInventoryItem } from '@/server/repositories/inventory';
+import { requireAdmin } from '@/server/utils/auth'
 // import { verifyAdmin } from '@/lib/auth'; // TODO: Implement proper admin verification
 
 export default async function handler(req, res) {
-    // TODO: Add authentication/authorization check
-    // const isAdmin = await verifyAdmin(req);
-    // if (!isAdmin) {
-    //     return res.status(403).json({ message: 'Forbidden' });
-    // }
+    const auth = requireAdmin(req)
+    if (!auth.ok) return res.status(auth.status).json(auth.body)
 
     if (req.method !== 'PUT') {
         res.setHeader('Allow', ['PUT']);

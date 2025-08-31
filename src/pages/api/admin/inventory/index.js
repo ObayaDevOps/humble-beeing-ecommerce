@@ -2,9 +2,12 @@ import sanityClient from '../../../../../sanity/lib/client';
 import supabaseAdmin from '../../../../lib/supabaseClient';
 
 import { getAllFromInventory } from '../../../../lib/db';
+import { requireAdmin } from '@/server/utils/auth'
 
 
 export default async function handler(req, res) {
+    const auth = requireAdmin(req)
+    if (!auth.ok) return res.status(auth.status).json(auth.body)
     if (req.method !== 'GET') {
         res.setHeader('Allow', ['GET']);
         return res.status(405).json({ message: `Method ${req.method} Not Allowed` });
@@ -14,7 +17,7 @@ export default async function handler(req, res) {
 
     try {
 
-        console.log("ENTERED")
+        // console.log("ENTERED")
         // 1. Fetch basic product data from Sanity
         // Adjust schema names (_type, nameField, imageField) if yours differ
         const sanityQuery = `*[_type == "product"]{
@@ -29,7 +32,7 @@ export default async function handler(req, res) {
         // if (search) sanityQuery = `*[(_type == "product") && (name match $search || description match $search)]{ ... }`
 
         const sanityProducts = await sanityClient.fetch(sanityQuery);
-        console.log('SANITY PRODUCT LIST:', sanityProducts);
+        // console.log('SANITY PRODUCT LIST:', sanityProducts);
 
         if (!sanityProducts) {
             return res.status(404).json({ message: 'No products found in CMS.' });
@@ -40,7 +43,7 @@ export default async function handler(req, res) {
         // const { data: inventoryData, error: supabaseError } = await supabaseQuery;
 
         const { data: inventoryData, error: supabaseError } = await getAllFromInventory();
-        console.log('FROM SUPABASE', inventoryData);
+        // console.log('FROM SUPABASE', inventoryData);
 
         if (supabaseError) {
             console.error('Supabase fetch error:', supabaseError);

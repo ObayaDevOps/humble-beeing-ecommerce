@@ -4,12 +4,13 @@ import { http, HttpResponse } from 'msw'
 import handler from '@/pages/api/payments/verify'
 
 vi.mock('@/lib/db', () => ({
-  updatePaymentStatus: vi.fn(async (tid, status, code, desc) => ({ id: 'pay-1', status, pesapal_status_description: desc, amount: 1000, currency: 'UGX', cart_items: [], delivery_address: {}, customer_email: 'a@b.com', customer_phone: '+256...' })),
+  updatePaymentStatus: vi.fn(async (tid, status, method, confirmationCode, desc) => ({ id: 'pay-1', status, pesapal_status_description: desc, amount: 1000, currency: 'UGX', cart_items: [], delivery_address: {}, customer_email: 'a@b.com', customer_phone: '+256...' })),
   findOrderExistsByPaymentId: vi.fn(async () => null),
-  createOrderAndItems: vi.fn(async () => ({ data: { id: 'order-1' } })),
+  createOrderAndItemsAtomic: vi.fn(async () => ({ data: { id: 'order-1' } })),
+  markEventProcessed: vi.fn(async () => ({ ok: true, processed: true })),
 }))
 
-const { updatePaymentStatus, findOrderExistsByPaymentId, createOrderAndItems } = await import('@/lib/db')
+const { updatePaymentStatus, findOrderExistsByPaymentId, createOrderAndItemsAtomic } = await import('@/lib/db')
 
 const createReqRes = (body = {}, method = 'POST') => {
   const req = { method, body, headers: {}, query: {} }
@@ -47,7 +48,7 @@ describe('API /api/payments/verify status mapping and idempotency', () => {
     await handler(req, res)
     const out = get()
     expect(out.statusCode).toBe(200)
-    expect(updatePaymentStatus).toHaveBeenCalledWith('TRACK-XYZ', 'FAILED', 'CARD', 'Payment failed')
+    expect(updatePaymentStatus).toHaveBeenCalledWith('TRACK-XYZ', 'FAILED', 'CARD', 'CONF-000', 'Payment failed')
     expect(out.json.status).toBe('FAILED')
   })
 
@@ -72,7 +73,7 @@ describe('API /api/payments/verify status mapping and idempotency', () => {
     await handler(req, res)
     const out = get()
     expect(out.statusCode).toBe(200)
-    expect(createOrderAndItems).not.toHaveBeenCalled()
+    expect(createOrderAndItemsAtomic).not.toHaveBeenCalled()
   })
 
   it('maps REVERSED status (status_code 3) correctly', async () => {
@@ -94,7 +95,7 @@ describe('API /api/payments/verify status mapping and idempotency', () => {
     await handler(req, res)
     const out = get()
     expect(out.statusCode).toBe(200)
-    expect(updatePaymentStatus).toHaveBeenCalledWith('TRACK-R', 'REVERSED', 'CARD', 'Payment reversed')
+    expect(updatePaymentStatus).toHaveBeenCalledWith('TRACK-R', 'REVERSED', 'CARD', 'CONF-111', 'Payment reversed')
     expect(out.json.status).toBe('REVERSED')
   })
 
@@ -117,7 +118,7 @@ describe('API /api/payments/verify status mapping and idempotency', () => {
     await handler(req, res)
     const out = get()
     expect(out.statusCode).toBe(200)
-    expect(updatePaymentStatus).toHaveBeenCalledWith('TRACK-P', 'PENDING', 'CARD', 'Unknown')
+    expect(updatePaymentStatus).toHaveBeenCalledWith('TRACK-P', 'PENDING', 'CARD', 'CONF-222', 'Unknown')
     expect(out.json.status).toBe('PENDING')
   })
 
@@ -148,7 +149,7 @@ describe('API /api/payments/verify status mapping and idempotency', () => {
   it('keeps 200 when order creation fails after COMPLETED', async () => {
     // No existing order, but creation fails
     findOrderExistsByPaymentId.mockResolvedValueOnce(null)
-    createOrderAndItems.mockResolvedValueOnce({ data: null, error: { message: 'insert failed' } })
+    createOrderAndItemsAtomic.mockResolvedValueOnce({ data: null, error: { message: 'insert failed' } })
     server.use(
       http.get('https://pesapal.test/Transactions/GetTransactionStatus', () => {
         return HttpResponse.json({

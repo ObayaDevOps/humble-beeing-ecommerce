@@ -1,15 +1,18 @@
 // pages/api/payments/initiate.js
-import { createPendingPayment, updatePaymentTrackingId } from '@/lib/db';
+import { createPendingPayment, updatePaymentTrackingId } from '@/server/repositories/payments';
 import { submitPesapalOrder } from '@/server/clients/pesapal';
 import { PESAPAL_IPN_IDS, APP_BASE_URL } from '@/server/config/env';
 import { ensureRequestId } from '@/server/utils/requestId';
 import { createLogger } from '@/server/utils/logger';
+import { rateLimit, keyFromReq } from '@/server/utils/rateLimit';
 // Optional: Import Supabase Auth helper if getting user ID server-side
 // import { createPagesServerClient } from '@supabase/auth-helpers-nextjs';
 
 const DEFAULT_IPN_ID = (PESAPAL_IPN_IDS || '').split(',')[0]?.trim();
 
 export default async function handler(req, res) {
+    const rl = rateLimit(keyFromReq(req, 'initiate'))
+    if (!rl.allowed) return res.status(429).json({ message: 'Too many requests. Please try again later.' })
     if (req.method !== 'POST') {
         res.setHeader('Allow', 'POST');
         return res.status(405).json({ message: 'Method Not Allowed' });

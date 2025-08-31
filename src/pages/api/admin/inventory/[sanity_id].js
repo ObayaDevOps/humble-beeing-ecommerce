@@ -2,9 +2,12 @@
 import supabaseAdmin from '../../../../lib/supabaseClient';
 
 import { getAllInventoryItemById, updateInventoryItem } from '../../../../lib/db';
+import { requireAdmin } from '@/server/utils/auth'
 
 
 export default async function handler(req, res) {
+    const auth = requireAdmin(req)
+    if (!auth.ok) return res.status(auth.status).json(auth.body)
     const { sanity_id } = req.query; // Get the Sanity product ID from the URL
 
     if (!sanity_id) {
@@ -19,7 +22,7 @@ export default async function handler(req, res) {
         try {
             // Fetch the item using your helper function
             const { data: inventoryData, error: supabaseError } = await getAllInventoryItemById(sanity_id);
-            console.log('FROM SUPABASE - Data:', inventoryData, 'Error:', supabaseError); // Log both
+            // console.log('FROM SUPABASE - Data:', inventoryData, 'Error:', supabaseError); // Log both
 
             // 1. Check the CORRECT error variable returned from the function call
             if (supabaseError) {
