@@ -3,7 +3,7 @@
 import sanityClient from '../../../../sanity/lib/client';
 
 
-import { getSalesDataForReport } from '@/lib/db'; // Import the new DB function
+import { getSalesDataForReport } from '@/server/repositories/orders';
 
 export default async function handler(req, res) {
     if (req.method !== 'GET') {

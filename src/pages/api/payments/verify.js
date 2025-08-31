@@ -1,11 +1,7 @@
 // pages/api/payments/verify.js
 import { getPesapalTransactionStatus } from '@/server/clients/pesapal';
-import {
-    getPaymentByTrackingId,
-    updatePaymentStatus,
-    findOrderExistsByPaymentId,
-    createOrderAndItems,
-} from '@/lib/db';
+import { getPaymentByTrackingId, updatePaymentStatus } from '@/server/repositories/payments';
+import { findOrderExistsByPaymentId, createOrderAndItems } from '@/server/repositories/orders';
 import axios from 'axios';
 import { mapPesapalStatus } from '@/server/services/statusMap';
 import { PESAPAL_API_BASE_URL as PESAPAL_BASE_URL } from '@/server/config/env';

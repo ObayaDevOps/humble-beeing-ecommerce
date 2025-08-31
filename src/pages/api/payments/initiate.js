@@ -1,5 +1,5 @@
 // pages/api/payments/initiate.js
-import { createPendingPayment, updatePaymentTrackingId } from '@/lib/db';
+import { createPendingPayment, updatePaymentTrackingId } from '@/server/repositories/payments';
 import { submitPesapalOrder } from '@/server/clients/pesapal';
 import { PESAPAL_IPN_IDS, APP_BASE_URL } from '@/server/config/env';
 import { ensureRequestId } from '@/server/utils/requestId';

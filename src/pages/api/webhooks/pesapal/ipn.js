@@ -1,6 +1,6 @@
 // pages/api/webhooks/pesapal/ipn.js
 import { getPesapalTransactionStatus } from '@/server/clients/pesapal';
-import { getPaymentByTrackingId, updatePaymentStatus } from '@/lib/db';
+import { getPaymentByTrackingId, updatePaymentStatus } from '@/server/repositories/payments';
 import { mapPesapalStatus } from '@/server/services/statusMap';
 import { ensureRequestId } from '@/server/utils/requestId';
 import { createLogger } from '@/server/utils/logger';

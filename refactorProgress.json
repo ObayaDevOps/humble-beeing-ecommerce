@@ -129,7 +129,8 @@
           "description": "Create payments.js, orders.js, inventory.js repositories. Each exposes clear methods and returns normalized data.",
           "files": ["src/server/repositories/payments.js", "src/server/repositories/orders.js", "src/server/repositories/inventory.js", "src/lib/db.js"],
           "acceptance": ["API routes no longer import src/lib/db.js", "Repository unit tests added"],
-          "status": "pending"
+          "status": "completed",
+          "notes": "Repositories added; API routes updated to use them. Tests green."
         },
         {
           "id": "P2-T2",

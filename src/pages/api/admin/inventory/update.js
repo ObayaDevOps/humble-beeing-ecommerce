@@ -1,4 +1,4 @@
-import { updateInventoryItem } from '@/lib/db';
+import { updateInventoryItem } from '@/server/repositories/inventory';
 // import { verifyAdmin } from '@/lib/auth'; // TODO: Implement proper admin verification
 
 export default async function handler(req, res) {
