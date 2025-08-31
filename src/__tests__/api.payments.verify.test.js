@@ -13,10 +13,11 @@ vi.mock('@/lib/db', () => ({
     cart_items: [{ _id: 'p1', quantity: 1, price: 1000 }],
     delivery_address: { email_address: 'a@b.com', phone_number: '+256...' },
     customer_email: 'a@b.com',
-    customer_phone: '+256...'
+  customer_phone: '+256...'
   })),
   findOrderExistsByPaymentId: vi.fn(async () => null),
-  createOrderAndItems: vi.fn(async () => ({ data: { id: 'order-1' } })),
+  createOrderAndItemsAtomic: vi.fn(async () => ({ data: { id: 'order-1' } })),
+  markEventProcessed: vi.fn(async () => ({ ok: true, processed: true })),
 }))
 
 const createReqRes = (body = {}, method = 'POST') => {

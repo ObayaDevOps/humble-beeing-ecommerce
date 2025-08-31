@@ -6,18 +6,17 @@ const config: PlaywrightTestConfig = {
   timeout: 30 * 1000,
   retries: 0,
   use: {
-    baseURL: process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:3000',
+    baseURL: process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:3001',
     headless: true,
     viewport: { width: 1280, height: 800 },
     trace: 'on-first-retry',
   },
   webServer: {
-    command: 'npm run dev',
+    command: 'PORT=3001 npm run dev',
     env: { NEXT_PUBLIC_E2E: '1' },
-    // Use a page that does not hit external providers for readiness
-    url: 'http://localhost:3000/checkout',
+    url: 'http://localhost:3001/checkout',
     timeout: 120 * 1000,
-    reuseExistingServer: true,
+    reuseExistingServer: false,
   },
 }
 

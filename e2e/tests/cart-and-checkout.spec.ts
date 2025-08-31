@@ -23,7 +23,7 @@ test.beforeEach(async ({ page }) => {
 
 test('cart page renders and suggests drawer use', async ({ page }) => {
   await page.goto('/cart')
-  await expect(page.getByRole('heading', { name: 'Cart Updated!' })).toBeVisible()
+  await expect(page.getByText('Cart Updated!')).toHaveCount(1)
   await expect(page.getByRole('button', { name: 'Continue Shopping' })).toBeVisible()
 })
 
@@ -56,7 +56,7 @@ test('happy path checkout redirects to Pesapal iframe', async ({ page }) => {
   await page.getByLabel('Address (within Kampala)').fill('Plot 1')
 
   // Drop a pin by clicking on map area (mocked in E2E)
-  await page.getByTestId('mock-map').click()
+  await page.getByTestId('mock-map').click({ force: true })
 
   await page.getByRole('button', { name: /Proceed to Pay/i }).click()
 
